@@ -1,9 +1,9 @@
 import pandas as pd
 import streamlit as st
-import plotly.graph_objects as go
 from influxdb_client import InfluxDBClient
+import plotly.graph_objects as go
 
-# Página de configuración
+# Configuración de la página
 st.set_page_config(
     page_title="Crecimiento del Dragón",
     page_icon="🐉",
@@ -17,7 +17,7 @@ st.markdown("""
     monitoreado a través de un sensor en tiempo real.
 """)
 
-# Conexión con InfluxDB
+# Conectar a InfluxDB
 client = InfluxDBClient(url="https://us-east-1-1.aws.cloud2.influxdata.com", token="TuToken", org="TuOrganizacion")
 query = 'from(bucket: "valdragon123") |> range(start: -1h) |> filter(fn: (r) => r._measurement == "Sensor 1" and r._field == "longituddeldragon")'
 
@@ -30,7 +30,7 @@ for table in result:
     for record in table.records:
         data.append({"time": record.get_time(), "longituddeldragon": record.get_value()})
 
-# Convertir a un DataFrame de Pandas
+# Convertir los datos en un DataFrame de Pandas
 df = pd.DataFrame(data)
 
 # Mostrar los datos en Streamlit
@@ -39,9 +39,9 @@ st.write("Aquí puedes ver la longitud del dragón en tiempo real.")
 
 # Mostrar el último valor de la longitud del dragón
 ultimo_valor = df["longituddeldragon"].iloc[-1]
-st.metric("Longitud del Dragón (cm)", f"{ultimo_valor:.2f} cm", delta=None)
+st.metric("Longitud del Dragón (cm)", f"{ultimo_valor:.2f} cm")
 
-# Mostrar gráfico de barras (Bar Gauge) usando Plotly
+# Gráfico de la longitud del dragón usando Plotly (Gauge)
 fig = go.Figure(go.Indicator(
     mode="gauge+number",
     value=ultimo_valor,
@@ -127,4 +127,3 @@ st.markdown("""
     ---
     Desarrollado para monitoreo del crecimiento de un dragón basado en sensores.
 """)
-
