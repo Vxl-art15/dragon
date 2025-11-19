@@ -1,129 +1,161 @@
 import pandas as pd
 import streamlit as st
-from influxdb_client import InfluxDBClient
-import plotly.graph_objects as go
+import numpy as np
+from datetime import datetime
 
-# Configuración de la página
+# Page configuration
 st.set_page_config(
     page_title="Crecimiento del Dragón",
     page_icon="🐉",
     layout="wide"
 )
 
-# Título y descripción
+# Custom CSS
+st.markdown("""
+    <style>
+    .main {
+        padding: 2rem;
+    }
+    .stAlert {
+        margin-top: 1rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Title and description
 st.title('📊 Crecimiento del Dragón')
 st.markdown("""
-    Esta aplicación permite analizar y visualizar el crecimiento de un dragón
+    Esta aplicación permite analizar los datos del crecimiento de un dragón
     monitoreado a través de un sensor en tiempo real.
 """)
 
-# Conectar a InfluxDB
-client = InfluxDBClient(url="https://us-east-1-1.aws.cloud2.influxdata.com", token="TuToken", org="TuOrganizacion")
-query = 'from(bucket: "valdragon123") |> range(start: -1h) |> filter(fn: (r) => r._measurement == "Sensor 1" and r._field == "longituddeldragon")'
+# File uploader
+uploaded_file = st.file_uploader('Seleccione archivo CSV', type=['csv'])
 
-# Ejecutar la consulta
-result = client.query_api().query(org="TuOrganizacion", query=query)
-data = []
+if uploaded_file is not None:
+    try:
+        # Load and process data
+        df1 = pd.read_csv(uploaded_file)
+        
+        # Renombrar la columna a 'longituddeldragon'
+        if 'Time' in df1.columns:
+            # Si existe Time, renombrar la otra columna a 'longituddeldragon'
+            other_columns = [col for col in df1.columns if col != 'Time']
+            if len(other_columns) > 0:
+                df1 = df1.rename(columns={other_columns[0]: 'longituddeldragon'})
+        else:
+            # Si no existe Time, renombrar la primera columna a 'longituddeldragon'
+            df1 = df1.rename(columns={df1.columns[0]: 'longituddeldragon'})
+        
+        # Procesar columna de tiempo si existe
+        if 'Time' in df1.columns:
+            df1['Time'] = pd.to_datetime(df1['Time'])
+            df1 = df1.set_index('Time')
 
-# Procesar los resultados de la consulta
-for table in result:
-    for record in table.records:
-        data.append({"time": record.get_time(), "longituddeldragon": record.get_value()})
+        # Create tabs for different analyses
+        tab1, tab2, tab3 = st.tabs(["📈 Visualización", "📊 Estadísticas", "🔍 Filtros"])
 
-# Convertir los datos en un DataFrame de Pandas
-df = pd.DataFrame(data)
+        with tab1:
+            st.subheader('Visualización de Datos')
+            
+            # Chart type selector
+            chart_type = st.selectbox(
+                "Seleccione tipo de gráfico",
+                ["Línea", "Área", "Barra"]
+            )
+            
+            # Create plot based on selection
+            if chart_type == "Línea":
+                st.line_chart(df1["longituddeldragon"])
+            elif chart_type == "Área":
+                st.area_chart(df1["longituddeldragon"])
+            else:
+                st.bar_chart(df1["longituddeldragon"])
 
-# Mostrar los datos en Streamlit
-st.subheader("📈 Longitud del Dragón")
-st.write("Aquí puedes ver la longitud del dragón en tiempo real.")
+            # Raw data display with toggle
+            if st.checkbox('Mostrar datos crudos'):
+                st.write(df1)
 
-# Mostrar el último valor de la longitud del dragón
-ultimo_valor = df["longituddeldragon"].iloc[-1]
-st.metric("Longitud del Dragón (cm)", f"{ultimo_valor:.2f} cm")
+        with tab2:
+            st.subheader('Análisis Estadístico')
+            
+            # Statistical summary
+            stats_df = df1["longituddeldragon"].describe()
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.dataframe(stats_df)
+            
+            with col2:
+                # Additional statistics
+                st.metric("Valor Promedio", f"{stats_df['mean']:.2f}")
+                st.metric("Valor Máximo", f"{stats_df['max']:.2f}")
+                st.metric("Valor Mínimo", f"{stats_df['min']:.2f}")
+                st.metric("Desviación Estándar", f"{stats_df['std']:.2f}")
 
-# Gráfico de la longitud del dragón usando Plotly (Gauge)
-fig = go.Figure(go.Indicator(
-    mode="gauge+number",
-    value=ultimo_valor,
-    title={'text': "Crecimiento del Dragón (cm)"},
-    gauge={'axis': {'range': [0, 100]},  # Ajusta el rango según el crecimiento del dragón
-           'steps': [{'range': [0, 30], 'color': "blue"},
-                     {'range': [30, 70], 'color': "green"},
-                     {'range': [70, 100], 'color': "red"}]}
-))
+        with tab3:
+            st.subheader('Filtros de Datos')
+            
+            # Calcular rango de valores
+            min_value = float(df1["longituddeldragon"].min())
+            max_value = float(df1["longituddeldragon"].max())
+            mean_value = float(df1["longituddeldragon"].mean())
+            
+            # Verificar si hay variación en los datos
+            if min_value == max_value:
+                st.warning(f"⚠️ Todos los valores en el dataset son iguales: {min_value:.2f}")
+                st.info("No es posible aplicar filtros cuando no hay variación en los datos.")
+                st.dataframe(df1)
+            else:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Minimum value filter
+                    min_val = st.slider(
+                        'Valor mínimo',
+                        min_value,
+                        max_value,
+                        mean_value,
+                        key="min_val"
+                    )
+                    
+                    filtrado_df_min = df1[df1["longituddeldragon"] > min_val]
+                    st.write(f"Registros con valor superior a {min_val:.2f} cm:")
+                    st.dataframe(filtrado_df_min)
+                    
+                with col2:
+                    # Maximum value filter
+                    max_val = st.slider(
+                        'Valor máximo',
+                        min_value,
+                        max_value,
+                        mean_value,
+                        key="max_val"
+                    )
+                    
+                    filtrado_df_max = df1[df1["longituddeldragon"] < max_val]
+                    st.write(f"Registros con valor inferior a {max_val:.2f} cm:")
+                    st.dataframe(filtrado_df_max)
 
-st.plotly_chart(fig)
+                # Download filtered data
+                if st.button('Descargar datos filtrados'):
+                    csv = filtrado_df_min.to_csv().encode('utf-8')
+                    st.download_button(
+                        label="Descargar CSV",
+                        data=csv,
+                        file_name='datos_filtrados.csv',
+                        mime='text/csv',
+                    )
 
-# Estadísticas de la longitud del dragón
-st.subheader("📊 Estadísticas de la Longitud del Dragón")
-
-# Mostrar resumen estadístico
-stats_df = df["longituddeldragon"].describe()
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.dataframe(stats_df)
-
-with col2:
-    st.metric("Valor Promedio", f"{stats_df['mean']:.2f} cm")
-    st.metric("Valor Máximo", f"{stats_df['max']:.2f} cm")
-    st.metric("Valor Mínimo", f"{stats_df['min']:.2f} cm")
-    st.metric("Desviación Estándar", f"{stats_df['std']:.2f} cm")
-
-# Mostrar los datos crudos
-st.subheader("📅 Datos Recientes del Dragón")
-if st.checkbox('Mostrar datos crudos'):
-    st.write(df)
-
-# Filtros de Datos (si quieres filtrar el crecimiento)
-st.subheader('🔍 Filtros de Datos')
-
-# Calcular el rango de valores
-min_value = df["longituddeldragon"].min()
-max_value = df["longituddeldragon"].max()
-mean_value = df["longituddeldragon"].mean()
-
-col1, col2 = st.columns(2)
-
-with col1:
-    # Filtro de valor mínimo
-    min_val = st.slider(
-        'Valor mínimo',
-        min_value,
-        max_value,
-        mean_value,
-        key="min_val"
-    )
-    filtrado_df_min = df[df["longituddeldragon"] > min_val]
-    st.write(f"Registros con valor superior a {min_val:.2f} cm:")
-    st.dataframe(filtrado_df_min)
-
-with col2:
-    # Filtro de valor máximo
-    max_val = st.slider(
-        'Valor máximo',
-        min_value,
-        max_value,
-        mean_value,
-        key="max_val"
-    )
-    filtrado_df_max = df[df["longituddeldragon"] < max_val]
-    st.write(f"Registros con valor inferior a {max_val:.2f} cm:")
-    st.dataframe(filtrado_df_max)
-
-# Descargar datos filtrados
-if st.button('Descargar datos filtrados'):
-    csv = filtrado_df_min.to_csv().encode('utf-8')
-    st.download_button(
-        label="Descargar CSV",
-        data=csv,
-        file_name='datos_filtrados.csv',
-        mime='text/csv',
-    )
-
+    except Exception as e:
+        st.error(f'Error al procesar el archivo: {str(e)}')
+        st.info('Asegúrese de que el archivo CSV tenga al menos una columna con datos.')
+else:
+    st.warning('Por favor, cargue un archivo CSV para comenzar el análisis.')
+    
 # Footer
 st.markdown("""
     ---
-    Desarrollado para monitoreo del crecimiento de un dragón basado en sensores.
+    Desarrollado para el análisis del crecimiento de un dragón basado en sensores.
 """)
